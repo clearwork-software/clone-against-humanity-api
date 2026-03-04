@@ -28,7 +28,7 @@ export class Game {
   @Column()
   name: string
 
-  @Column()
+  @Column({ unique: true })
   invite_code: string
 
   @Column()
