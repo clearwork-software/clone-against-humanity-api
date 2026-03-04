@@ -34,7 +34,7 @@ export class GameRound {
   @Column()
   number: number
 
-  @Column()
+  @Column({ nullable: true })
   czar_id: string
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
