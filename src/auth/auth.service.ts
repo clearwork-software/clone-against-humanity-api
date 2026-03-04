@@ -37,6 +37,7 @@ export class AuthService {
     const payload = {
       username: user.username,
       sub: user.id,
+      roles: user.roles || ['USER'],
     }
 
     return {
@@ -60,6 +61,7 @@ export class AuthService {
     const payload = {
       username: registered.username,
       sub: registered.id,
+      roles: registered.roles || ['USER'],
     }
 
     const { password: _, ...userWithoutPassword } = registered

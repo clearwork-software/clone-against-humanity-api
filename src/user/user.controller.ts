@@ -12,12 +12,11 @@ import {
 
 // Guards
 import { JwtAuthGuard } from 'src/guards/jwt-auth.guard'
+import { RolesGuard } from 'src/guards/roles.guard'
+import { Roles } from 'src/guards/roles.decorator'
 
 // Service
 import { UserService } from './user.service'
-
-// Entities
-import { User } from './entities/user.entity'
 
 // DTOs
 import { UpdateUserDto } from './dto/update-user.dto'
@@ -27,6 +26,8 @@ import { UpdateUserDto } from './dto/update-user.dto'
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @UseGuards(RolesGuard)
+  @Roles('ADMINISTRATOR')
   @Get()
   findAll() {
     return this.userService.findAll()

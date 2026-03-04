@@ -13,6 +13,8 @@ import {
 
 // Guards
 import { JwtAuthGuard } from 'src/guards/jwt-auth.guard'
+import { RolesGuard } from 'src/guards/roles.guard'
+import { Roles } from 'src/guards/roles.decorator'
 
 // Service
 import { CardService } from './card.service'
@@ -25,7 +27,8 @@ import { UpdateCardDto } from './dto/update-card.dto'
 export class CardController {
   constructor(private readonly cardService: CardService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMINISTRATOR')
   @Post()
   create(@Body() data: CreateCardDto) {
     return this.cardService.create(data)
@@ -75,13 +78,15 @@ export class CardController {
     return this.cardService.findOne(id)
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMINISTRATOR')
   @Patch(':id')
   update(@Param('id') id: string, @Body() data: UpdateCardDto) {
     return this.cardService.update(id, data)
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMINISTRATOR')
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.cardService.remove(id)
