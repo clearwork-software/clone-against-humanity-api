@@ -130,6 +130,31 @@ export class GameService {
 
     await this.gameRepo.save(game)
 
+    // If the game is in progress, handle czar leaving or insufficient players
+    if (game.status === GameStatus.IN_PROGRESS) {
+      if (game.players.length < 2) {
+        // Not enough players — end the game
+        return this.endGameInternal(id)
+      }
+
+      const currentRound = game.rounds[game.rounds.length - 1]
+
+      if (
+        currentRound?.czar_id === playerId &&
+        currentRound.phase !== RoundPhase.COMPLETE
+      ) {
+        // Czar left mid-round — skip this round and start a new one
+        currentRound.phase = RoundPhase.COMPLETE
+        await this.roundRepo.save(currentRound)
+
+        if (game.rounds.length >= game.max_rounds) {
+          return this.endGameInternal(id)
+        }
+
+        return this.startNewRoundInternal(game, currentRound)
+      }
+    }
+
     const updated = await this.findOne(id)
 
     this.gameGateway.server.to(id).emit('game_updated', updated)
