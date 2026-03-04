@@ -91,9 +91,9 @@ export class GameService {
 
   async playerJoin(id: string, playerId: string): Promise<Game> {
     await this.dataSource.transaction(async (manager) => {
+      // Lock the game row first (no relations — FOR UPDATE can't use LEFT JOINs)
       const game = await manager.findOne(Game, {
         where: { id },
-        relations: ['players'],
         lock: { mode: 'pessimistic_write' },
       })
 
@@ -105,17 +105,23 @@ export class GameService {
         throw new BadRequestException('Game has already started')
       }
 
-      if (game.players?.length >= game.max_players) {
+      // Load players separately after acquiring the lock
+      const fullGame = await manager.findOne(Game, {
+        where: { id },
+        relations: ['players'],
+      })
+
+      if (fullGame.players?.length >= game.max_players) {
         throw new BadRequestException('Game is full')
       }
 
-      if (game.players.some((p) => p.id === playerId)) {
+      if (fullGame.players.some((p) => p.id === playerId)) {
         throw new BadRequestException('Player already in game')
       }
 
       const player = await this.userService.findOne(playerId)
-      game.players.push(player)
-      await manager.save(game)
+      fullGame.players.push(player)
+      await manager.save(fullGame)
     })
 
     const updated = await this.findOne(id)
