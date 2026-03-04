@@ -2,7 +2,7 @@
 import { Injectable } from '@nestjs/common'
 
 // TypeORM
-import { Repository } from 'typeorm'
+import { DataSource, Repository } from 'typeorm'
 import { InjectRepository } from '@nestjs/typeorm'
 
 // Entities
@@ -18,6 +18,7 @@ export class CardService {
   constructor(
     @InjectRepository(Card) private cardRepo: Repository<Card>,
     @InjectRepository(Game) private gameRepo: Repository<Game>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(data: CreateCardDto): Promise<Card> {
@@ -69,42 +70,51 @@ export class CardService {
     count: number,
     gameId: string,
   ): Promise<Card[]> {
-    const game = await this.gameRepo.findOne({ where: { id: gameId } })
-    if (!game) {
-      return this.generateHand(type)
-    }
-
-    const dealtKey =
-      type === 'white' ? 'dealt_white_cards' : 'dealt_black_cards'
-    let dealtIds: string[] = game[dealtKey] || []
-
     const allCards = await this.findAllOfType(type)
-    let available = allCards.filter((card) => !dealtIds.includes(card.id))
 
-    // If not enough cards remain, reshuffle
-    if (available.length < count) {
-      dealtIds = []
-      available = allCards
-    }
+    // Use a transaction with pessimistic lock to prevent duplicate card deals
+    // when multiple players request hands simultaneously
+    return this.dataSource.transaction(async (manager) => {
+      const game = await manager.findOne(Game, {
+        where: { id: gameId },
+        lock: { mode: 'pessimistic_write' },
+      })
 
-    // Pick random cards without duplicates within the hand
-    const hand: Card[] = []
-    const usedInHand = new Set<string>()
+      if (!game) {
+        return this.generateHand(type)
+      }
 
-    for (let i = 0; i < count && available.length > 0; i++) {
-      const remaining = available.filter((c) => !usedInHand.has(c.id))
-      if (remaining.length === 0) break
+      const dealtKey =
+        type === 'white' ? 'dealt_white_cards' : 'dealt_black_cards'
+      let dealtIds: string[] = game[dealtKey] || []
 
-      const random = Math.floor(Math.random() * remaining.length)
-      const card = remaining[random]
-      hand.push(card)
-      usedInHand.add(card.id)
-    }
+      let available = allCards.filter((card) => !dealtIds.includes(card.id))
 
-    // Update dealt cards on the game
-    const newDealtIds = [...dealtIds, ...hand.map((c) => c.id)]
-    await this.gameRepo.update(gameId, { [dealtKey]: newDealtIds })
+      // If not enough cards remain, reshuffle
+      if (available.length < count) {
+        dealtIds = []
+        available = allCards
+      }
 
-    return hand
+      // Pick random cards without duplicates within the hand
+      const hand: Card[] = []
+      const usedInHand = new Set<string>()
+
+      for (let i = 0; i < count && available.length > 0; i++) {
+        const remaining = available.filter((c) => !usedInHand.has(c.id))
+        if (remaining.length === 0) break
+
+        const random = Math.floor(Math.random() * remaining.length)
+        const card = remaining[random]
+        hand.push(card)
+        usedInHand.add(card.id)
+      }
+
+      // Update dealt cards on the game
+      const newDealtIds = [...dealtIds, ...hand.map((c) => c.id)]
+      await manager.update(Game, gameId, { [dealtKey]: newDealtIds })
+
+      return hand
+    })
   }
 }

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common'
 
 // TypeORM
-import { Repository } from 'typeorm'
+import { DataSource, Repository } from 'typeorm'
 import { InjectRepository } from '@nestjs/typeorm'
 
 // Service
@@ -30,6 +30,7 @@ export class GameService {
     @InjectRepository(Game) private gameRepo: Repository<Game>,
     @InjectRepository(GameRound) private roundRepo: Repository<GameRound>,
 
+    private readonly dataSource: DataSource,
     private readonly gameGateway: GameGateway,
 
     private readonly cardService: CardService,
@@ -236,13 +237,13 @@ export class GameService {
       throw new BadRequestException('Game is not in progress')
     }
 
-    const round = game.rounds[game.rounds.length - 1]
+    const currentRound = game.rounds[game.rounds.length - 1]
 
-    if (round.phase !== RoundPhase.PICKING_WHITE) {
+    if (currentRound.phase !== RoundPhase.PICKING_WHITE) {
       throw new BadRequestException('Not in white card selection phase')
     }
 
-    if (round.czar_id === playerId) {
+    if (currentRound.czar_id === playerId) {
       throw new BadRequestException('You are the czar')
     }
 
@@ -252,29 +253,37 @@ export class GameService {
       throw new BadRequestException('Player is not in this game')
     }
 
-    const cards = round.white_cards || []
-
-    if (cards.some((c) => c.player_id === playerId)) {
-      throw new BadRequestException('You already played a card this round')
-    }
-
     const card = await this.cardService.findOne(cardId)
 
-    cards.push({
-      ...card,
-      player_id: player.id,
-      player_name: player.username,
+    // Use a transaction with pessimistic lock to prevent lost updates
+    // on the white_cards JSON column when multiple players submit simultaneously
+    await this.dataSource.transaction(async (manager) => {
+      const round = await manager.findOne(GameRound, {
+        where: { id: currentRound.id },
+        lock: { mode: 'pessimistic_write' },
+      })
+
+      const cards = round.white_cards || []
+
+      if (cards.some((c) => c.player_id === playerId)) {
+        throw new BadRequestException('You already played a card this round')
+      }
+
+      cards.push({
+        ...card,
+        player_id: player.id,
+        player_name: player.username,
+      })
+
+      round.white_cards = cards
+
+      const nonCzarCount = game.players.length - 1
+      if (cards.length >= nonCzarCount) {
+        round.phase = RoundPhase.JUDGING
+      }
+
+      await manager.save(round)
     })
-
-    round.white_cards = cards
-
-    // Transition to judging if all non-czar players have played
-    const nonCzarCount = game.players.length - 1
-    if (cards.length >= nonCzarCount) {
-      round.phase = RoundPhase.JUDGING
-    }
-
-    await this.roundRepo.save(round)
 
     const updated = await this.findOne(id)
 
