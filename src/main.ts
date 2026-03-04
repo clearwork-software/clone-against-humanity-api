@@ -1,5 +1,6 @@
 // Nest
 import { NestFactory } from '@nestjs/core'
+import { ValidationPipe } from '@nestjs/common'
 
 // Modules
 import { AppModule } from './app.module'
@@ -24,8 +25,12 @@ async function bootstrap() {
   })
 
   app.enableCors({
-    origin: '*',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   })
+
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
+  )
 
   app.useWebSocketAdapter(new IoAdapter(app))
 
