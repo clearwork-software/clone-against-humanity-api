@@ -63,11 +63,13 @@ export class CardController {
     return await this.cardService.generateHand('black')
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get()
   findAll() {
     return this.cardService.findAll()
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.cardService.findOne(id)

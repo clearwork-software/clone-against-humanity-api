@@ -11,6 +11,7 @@ import {
   UseGuards,
   Req,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common'
 
 // Guards
@@ -44,7 +45,21 @@ export class GameController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() data: UpdateGameDto) {
+  async update(
+    @Param('id') id: string,
+    @Body() data: UpdateGameDto,
+    @Req() req,
+  ) {
+    const game = await this.gameService.findOne(id)
+
+    if (!game) {
+      throw new NotFoundException('Game not found')
+    }
+
+    if (game.host !== req.user.id) {
+      throw new ForbiddenException('Only the host can update this game')
+    }
+
     return this.gameService.update(id, data)
   }
 
@@ -102,7 +117,17 @@ export class GameController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  async remove(@Param('id') id: string, @Req() req) {
+    const game = await this.gameService.findOne(id)
+
+    if (!game) {
+      throw new NotFoundException('Game not found')
+    }
+
+    if (game.host !== req.user.id) {
+      throw new ForbiddenException('Only the host can delete this game')
+    }
+
     return this.gameService.remove(id)
   }
 }

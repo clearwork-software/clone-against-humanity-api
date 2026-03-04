@@ -19,7 +19,7 @@ export class AuthService {
   ) {}
 
   async login(data: LoginDto): Promise<any> {
-    const user = await this.userService.findOneByUsername(data.username)
+    const user = await this.userService.findOneByUsernameWithPassword(data.username)
 
     if (!user) {
       throw new BadRequestException('Invalid username or password')
@@ -62,26 +62,21 @@ export class AuthService {
       sub: registered.id,
     }
 
+    const { password: _, ...userWithoutPassword } = registered
+
     return {
       access_token: this.jwtService.sign(payload),
+      ...userWithoutPassword,
     }
   }
 
-  async getProfile(token: string): Promise<any> {
-    const decoded = this.jwtService.decode(token)
+  async getProfile(user: { id: string; username: string }): Promise<any> {
+    const found = await this.userService.findOneByUsername(user.username)
 
-    const user = await this.userService.findOneByUsername(decoded['username'])
-
-    if (!user) {
+    if (!found) {
       throw new BadRequestException('User not found')
     }
 
-    return user
+    return found
   }
-
-  async validate(data: any): Promise<any> {
-    return data
-  }
-
-  // async logout(data: any): Promise<any> {}
 }

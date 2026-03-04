@@ -1,5 +1,8 @@
 // Nest
-import { Controller, Get, Post, Body, Req } from '@nestjs/common'
+import { Controller, Get, Post, Body, Req, UseGuards } from '@nestjs/common'
+
+// Guards
+import { JwtAuthGuard } from 'src/guards/jwt-auth.guard'
 
 // Service
 import { AuthService } from './auth.service'
@@ -22,15 +25,9 @@ export class AuthController {
     return this.authService.register(data)
   }
 
-  @Get('validate')
-  async validate(@Body() data: any) {
-    return this.authService.validate(data)
-  }
-
+  @UseGuards(JwtAuthGuard)
   @Get('me')
-  async getProfile(@Req() request) {
-    const token = request.headers.authorization.split(' ')[1]
-
-    return this.authService.getProfile(token)
+  async getProfile(@Req() req) {
+    return this.authService.getProfile(req.user)
   }
 }
