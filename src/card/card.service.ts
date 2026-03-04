@@ -54,12 +54,18 @@ export class CardService {
 
   async generateHand(type: 'black' | 'white'): Promise<Card[]> {
     const count = type === 'white' ? 5 : 3
-    const hand = []
+    const allCards = await this.findAllOfType(type)
+    const hand: Card[] = []
+    const usedIds = new Set<string>()
 
     for (let i = 0; i < count; i++) {
-      const card = await this.generateCard(type)
+      const remaining = allCards.filter((c) => !usedIds.has(c.id))
+      if (remaining.length === 0) break
 
+      const random = Math.floor(Math.random() * remaining.length)
+      const card = remaining[random]
       hand.push(card)
+      usedIds.add(card.id)
     }
 
     return hand

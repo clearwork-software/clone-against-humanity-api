@@ -387,11 +387,20 @@ export class GameService {
 
     let topScore = 0
     let winnerId = ''
+    let winnerLastRoundWon = -1
 
     for (const [playerId, score] of scoreMap) {
-      if (score > topScore) {
+      const lastRoundWon = game.rounds
+        .filter((r) => r.winning_card?.player_id === playerId)
+        .reduce((max, r) => Math.max(max, r.number), -1)
+
+      if (
+        score > topScore ||
+        (score === topScore && lastRoundWon > winnerLastRoundWon)
+      ) {
         topScore = score
         winnerId = playerId
+        winnerLastRoundWon = lastRoundWon
       }
     }
 

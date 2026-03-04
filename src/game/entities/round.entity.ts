@@ -2,6 +2,7 @@
 import {
   Column,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -20,6 +21,7 @@ export enum RoundPhase {
 }
 
 @Entity()
+@Index(['game_id', 'number'])
 export class GameRound {
   @PrimaryGeneratedColumn('uuid')
   id: string

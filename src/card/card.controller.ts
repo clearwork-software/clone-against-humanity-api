@@ -31,11 +31,21 @@ export class CardController {
     return this.cardService.create(data)
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('white')
-  async getWhiteCard() {
+  async getWhiteCard(@Query('gameId') gameId?: string) {
+    if (gameId) {
+      const cards = await this.cardService.generateHandForGame(
+        'white',
+        1,
+        gameId,
+      )
+      return cards[0]
+    }
     return await this.cardService.generateCard('white')
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('white/hand')
   async getWhiteHand(@Query('gameId') gameId?: string) {
     if (gameId) {
@@ -44,6 +54,7 @@ export class CardController {
     return await this.cardService.generateHand('white')
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('black/hand')
   async getBlackHand(@Query('gameId') gameId?: string) {
     if (gameId) {
