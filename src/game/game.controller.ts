@@ -8,17 +8,22 @@ import {
   Param,
   Delete,
   Put,
+  UseGuards,
+  Req,
+  NotFoundException,
 } from '@nestjs/common'
+
+// Guards
+import { JwtAuthGuard } from 'src/guards/jwt-auth.guard'
 
 // Service
 import { GameService } from './game.service'
 
 // DTOs
 import { CreateGameDto } from './dto/create-game.dto'
-import { JoinGameDto } from './dto/join-game.dto'
-import { LeaveGameDto } from './dto/leave-game.dto'
 import { UpdateGameDto } from './dto/update-game.dto'
 
+@UseGuards(JwtAuthGuard)
 @Controller('games')
 export class GameController {
   constructor(private readonly gameService: GameService) {}
@@ -43,51 +48,57 @@ export class GameController {
     return this.gameService.update(id, data)
   }
 
+  @Put('join-by-code')
+  async joinByCode(@Body() data: { invite_code: string }, @Req() req) {
+    const game = await this.gameService.findByInviteCode(data.invite_code)
+
+    if (!game) {
+      throw new NotFoundException('Game not found for that invite code')
+    }
+
+    return this.gameService.playerJoin(game.id, req.user.id)
+  }
+
   @Put(':id/join')
-  updateJoin(@Param('id') id: string, @Body() data: JoinGameDto) {
-    return this.gameService.playerJoin(id, data)
+  updateJoin(@Param('id') id: string, @Req() req) {
+    return this.gameService.playerJoin(id, req.user.id)
   }
 
   @Put(':id/leave')
-  updateLeave(@Param('id') id: string, @Body() data: LeaveGameDto) {
-    return this.gameService.playerLeave(id, data)
+  updateLeave(@Param('id') id: string, @Req() req) {
+    return this.gameService.playerLeave(id, req.user.id)
   }
 
   @Put(':id/start')
-  updateStart(@Param('id') id: string, @Body() data: { player_id: string }) {
-    return this.gameService.startGame(id, data)
+  updateStart(@Param('id') id: string, @Req() req) {
+    return this.gameService.startGame(id, req.user.id)
   }
 
   @Put(':id/select-black-card')
   updateSelectBlackCard(
     @Param('id') id: string,
-    @Body() data: { player_id: string; card_id: string },
+    @Req() req,
+    @Body() data: { card_id: string },
   ) {
-    return this.gameService.selectBlackCard(id, data)
+    return this.gameService.selectBlackCard(id, req.user.id, data.card_id)
   }
 
   @Put(':id/select-white-card')
   updateSelectWhiteCard(
     @Param('id') id: string,
-    @Body() data: { player_id: string; card_id: string },
+    @Req() req,
+    @Body() data: { card_id: string },
   ) {
-    return this.gameService.selectWhiteCard(id, data)
+    return this.gameService.selectWhiteCard(id, req.user.id, data.card_id)
   }
 
   @Put(':id/select-winning-card')
   async updateSelectWinningCard(
     @Param('id') id: string,
+    @Req() req,
     @Body() data: { card_id: string },
   ) {
-    const game = await this.gameService.selectWinningCard(id, data.card_id)
-
-    await new Promise((resolve) => setTimeout(resolve, 5000))
-
-    if (game.rounds.length >= game.max_rounds) {
-      return await this.gameService.endGame(id)
-    } else {
-      return await this.gameService.startNewRound(id)
-    }
+    return this.gameService.selectWinningCard(id, req.user.id, data.card_id)
   }
 
   @Delete(':id')

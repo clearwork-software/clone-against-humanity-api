@@ -7,7 +7,12 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
+  UseGuards,
 } from '@nestjs/common'
+
+// Guards
+import { JwtAuthGuard } from 'src/guards/jwt-auth.guard'
 
 // Service
 import { CardService } from './card.service'
@@ -20,6 +25,7 @@ import { UpdateCardDto } from './dto/update-card.dto'
 export class CardController {
   constructor(private readonly cardService: CardService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Post()
   create(@Body() data: CreateCardDto) {
     return this.cardService.create(data)
@@ -31,12 +37,18 @@ export class CardController {
   }
 
   @Get('white/hand')
-  async getWhiteHand() {
+  async getWhiteHand(@Query('gameId') gameId?: string) {
+    if (gameId) {
+      return await this.cardService.generateHandForGame('white', 5, gameId)
+    }
     return await this.cardService.generateHand('white')
   }
 
   @Get('black/hand')
-  async getBlackHand() {
+  async getBlackHand(@Query('gameId') gameId?: string) {
+    if (gameId) {
+      return await this.cardService.generateHandForGame('black', 3, gameId)
+    }
     return await this.cardService.generateHand('black')
   }
 
@@ -50,13 +62,15 @@ export class CardController {
     return this.cardService.findOne(id)
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(@Param('id') id: string, @Body() data: UpdateCardDto) {
-    return this.cardService.update(+id, data)
+    return this.cardService.update(id, data)
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.cardService.remove(+id)
+    return this.cardService.remove(id)
   }
 }

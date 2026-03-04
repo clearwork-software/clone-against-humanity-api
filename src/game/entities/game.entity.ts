@@ -5,6 +5,7 @@ import {
   Entity,
   JoinTable,
   ManyToMany,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm'
@@ -12,6 +13,12 @@ import {
 // Entities
 import { GameRound } from './round.entity'
 import { User } from 'src/user/entities/user.entity'
+
+export enum GameStatus {
+  WAITING = 'waiting',
+  IN_PROGRESS = 'in_progress',
+  FINISHED = 'finished',
+}
 
 @Entity()
 export class Game {
@@ -37,11 +44,27 @@ export class Game {
   @Column()
   max_rounds: number
 
-  @JoinTable()
-  @ManyToMany(() => GameRound, (round) => round.game_id, {
-    nullable: true,
+  @OneToMany(() => GameRound, (round) => round.game, { cascade: true })
+  rounds: GameRound[] // ordered by { number: ASC } in all queries via findOne/findAll
+
+  @Column({
+    type: 'varchar',
+    enum: GameStatus,
+    default: GameStatus.WAITING,
   })
-  rounds: GameRound[]
+  status: GameStatus
+
+  @Column('json', {
+    default: '[]',
+    nullable: false,
+  })
+  dealt_white_cards: string[]
+
+  @Column('json', {
+    default: '[]',
+    nullable: false,
+  })
+  dealt_black_cards: string[]
 
   @Column({
     default: null,

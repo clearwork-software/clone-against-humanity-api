@@ -17,13 +17,11 @@ import { UserService } from 'src/user/user.service'
 import { GameGateway } from './game.gateway'
 
 // Entities
-import { Game } from './entities/game.entity'
-import { GameRound } from './entities/round.entity'
+import { Game, GameStatus } from './entities/game.entity'
+import { GameRound, RoundPhase } from './entities/round.entity'
 
 // DTOs
 import { CreateGameDto } from './dto/create-game.dto'
-import { JoinGameDto } from './dto/join-game.dto'
-import { LeaveGameDto } from './dto/leave-game.dto'
 import { UpdateGameDto } from './dto/update-game.dto'
 
 @Injectable()
@@ -47,7 +45,10 @@ export class GameService {
   }
 
   async findAll(): Promise<Game[]> {
-    const games = await this.gameRepo.find({ relations: ['players', 'rounds'] })
+    const games = await this.gameRepo.find({
+      relations: ['players', 'rounds'],
+      order: { rounds: { number: 'ASC' } },
+    })
 
     return games
   }
@@ -56,6 +57,17 @@ export class GameService {
     const game = await this.gameRepo.findOne({
       where: { id },
       relations: ['players', 'rounds'],
+      order: { rounds: { number: 'ASC' } },
+    })
+
+    return game
+  }
+
+  async findByInviteCode(code: string): Promise<Game> {
+    const game = await this.gameRepo.findOne({
+      where: { invite_code: code },
+      relations: ['players', 'rounds'],
+      order: { rounds: { number: 'ASC' } },
     })
 
     return game
@@ -70,12 +82,14 @@ export class GameService {
 
     await this.gameRepo.update(id, data)
 
-    this.gameGateway.server.emit('game_updated', game)
+    const updated = await this.findOne(id)
 
-    return game
+    this.gameGateway.server.to(id).emit('game_updated', updated)
+
+    return updated
   }
 
-  async playerJoin(id: string, data: JoinGameDto): Promise<Game> {
+  async playerJoin(id: string, playerId: string): Promise<Game> {
     const game = await this.findOne(id)
 
     if (!game) {
@@ -86,71 +100,82 @@ export class GameService {
       throw new BadRequestException('Game is full')
     }
 
-    const player = await this.userService.findOne(data.player_id)
+    const alreadyJoined = game.players.some((p) => p.id === playerId)
+    if (alreadyJoined) {
+      throw new BadRequestException('Player already in game')
+    }
+
+    const player = await this.userService.findOne(playerId)
 
     game.players.push(player)
 
     await this.gameRepo.save(game)
 
-    this.gameGateway.server.emit('game_updated', game)
+    const updated = await this.findOne(id)
 
-    return game
+    this.gameGateway.server.to(id).emit('game_updated', updated)
+
+    return updated
   }
 
-  async playerLeave(id: string, data: LeaveGameDto) {
+  async playerLeave(id: string, playerId: string) {
     const game = await this.findOne(id)
 
     if (!game) {
       throw new NotFoundException('Game not found')
     }
 
-    const player = await this.userService.findOne(data.player_id)
-
-    game.players = game.players.filter((p) => p.id !== player.id)
+    game.players = game.players.filter((p) => p.id !== playerId)
 
     await this.gameRepo.save(game)
 
-    this.gameGateway.server.emit('game_updated', game)
+    const updated = await this.findOne(id)
 
-    return game
+    this.gameGateway.server.to(id).emit('game_updated', updated)
+
+    return updated
   }
 
-  async startGame(id: string, data: { player_id: string }): Promise<Game> {
+  async startGame(id: string, playerId: string): Promise<Game> {
     const game = await this.findOne(id)
 
     if (!game) {
       throw new NotFoundException('Game not found')
+    }
+
+    if (game.status !== GameStatus.WAITING) {
+      throw new BadRequestException('Game has already started')
     }
 
     if (game.players.length < 2) {
       throw new BadRequestException('Not enough players')
     }
 
-    if (game.host !== data.player_id) {
+    if (game.host !== playerId) {
       throw new BadRequestException('You are not the host')
     }
 
-    const round = await this.roundRepo.save({
+    game.status = GameStatus.IN_PROGRESS
+    await this.gameRepo.save(game)
+
+    await this.roundRepo.save({
       game_id: game.id,
       number: 1,
       czar_id: game.players[0].id,
+      phase: RoundPhase.PICKING_BLACK,
     })
 
-    game.rounds.push(round)
+    const updated = await this.findOne(id)
 
-    await this.gameRepo.save(game)
+    this.gameGateway.server.to(id).emit('game_updated', updated)
 
-    this.gameGateway.server.emit('game_updated', game)
-
-    return game
+    return updated
   }
 
   async selectBlackCard(
     id: string,
-    data: {
-      player_id: string
-      card_id: string
-    },
+    playerId: string,
+    cardId: string,
   ): Promise<Game> {
     const game = await this.findOne(id)
 
@@ -158,14 +183,26 @@ export class GameService {
       throw new NotFoundException('Game not found')
     }
 
+    if (game.status !== GameStatus.IN_PROGRESS) {
+      throw new BadRequestException('Game is not in progress')
+    }
+
     const round = game.rounds[game.rounds.length - 1]
 
-    if (round.czar_id !== data.player_id) {
+    if (round.phase !== RoundPhase.PICKING_BLACK) {
+      throw new BadRequestException('Not in black card selection phase')
+    }
+
+    if (round.czar_id !== playerId) {
       throw new BadRequestException('You are not the czar')
     }
 
-    const card = await this.cardService.findOne(data.card_id)
-    const player = await this.userService.findOne(data.player_id)
+    const card = await this.cardService.findOne(cardId)
+    const player = game.players.find((p) => p.id === playerId)
+
+    if (!player) {
+      throw new BadRequestException('Player is not in this game')
+    }
 
     round.black_card = {
       ...card,
@@ -173,19 +210,21 @@ export class GameService {
       player_name: player.username,
     }
 
+    round.phase = RoundPhase.PICKING_WHITE
+
     await this.roundRepo.save(round)
 
-    this.gameGateway.server.emit('game_updated', game)
+    const updated = await this.findOne(id)
 
-    return game
+    this.gameGateway.server.to(id).emit('game_updated', updated)
+
+    return updated
   }
 
   async selectWhiteCard(
     id: string,
-    data: {
-      player_id: string
-      card_id: string
-    },
+    playerId: string,
+    cardId: string,
   ): Promise<Game> {
     const game = await this.findOne(id)
 
@@ -193,16 +232,33 @@ export class GameService {
       throw new NotFoundException('Game not found')
     }
 
+    if (game.status !== GameStatus.IN_PROGRESS) {
+      throw new BadRequestException('Game is not in progress')
+    }
+
     const round = game.rounds[game.rounds.length - 1]
 
-    if (round.czar_id === data.player_id) {
+    if (round.phase !== RoundPhase.PICKING_WHITE) {
+      throw new BadRequestException('Not in white card selection phase')
+    }
+
+    if (round.czar_id === playerId) {
       throw new BadRequestException('You are the czar')
     }
 
-    const card = await this.cardService.findOne(data.card_id)
-    const player = await this.userService.findOne(data.player_id)
+    const player = game.players.find((p) => p.id === playerId)
+
+    if (!player) {
+      throw new BadRequestException('Player is not in this game')
+    }
 
     const cards = round.white_cards || []
+
+    if (cards.some((c) => c.player_id === playerId)) {
+      throw new BadRequestException('You already played a card this round')
+    }
+
+    const card = await this.cardService.findOne(cardId)
 
     cards.push({
       ...card,
@@ -212,67 +268,96 @@ export class GameService {
 
     round.white_cards = cards
 
+    // Transition to judging if all non-czar players have played
+    const nonCzarCount = game.players.length - 1
+    if (cards.length >= nonCzarCount) {
+      round.phase = RoundPhase.JUDGING
+    }
+
     await this.roundRepo.save(round)
 
-    this.gameGateway.server.emit('game_updated', game)
+    const updated = await this.findOne(id)
 
-    return game
+    this.gameGateway.server.to(id).emit('game_updated', updated)
+
+    return updated
   }
 
-  async selectWinningCard(id: string, card_id: string): Promise<Game> {
+  async selectWinningCard(
+    id: string,
+    playerId: string,
+    card_id: string,
+  ): Promise<Game> {
     const game = await this.findOne(id)
 
     if (!game) {
       throw new NotFoundException('Game not found')
     }
 
+    if (game.status !== GameStatus.IN_PROGRESS) {
+      throw new BadRequestException('Game is not in progress')
+    }
+
     const round = game.rounds[game.rounds.length - 1]
 
-    const card = round.white_cards.find((c) => c.id === card_id)
+    if (round.phase !== RoundPhase.JUDGING) {
+      throw new BadRequestException('Not in judging phase')
+    }
+
+    if (round.czar_id !== playerId) {
+      throw new BadRequestException('Only the czar can pick the winner')
+    }
+
+    const card = round.white_cards?.find((c) => c.id === card_id)
+
+    if (!card) {
+      throw new BadRequestException('Card not found in submitted cards')
+    }
 
     round.winning_card = {
       ...card,
     }
 
+    round.phase = RoundPhase.COMPLETE
+
     await this.roundRepo.save(round)
 
-    this.gameGateway.server.emit('game_updated', game)
-
-    return game
+    // Determine if the game is over or if we need a new round
+    if (game.rounds.length >= game.max_rounds) {
+      return this.endGameInternal(id)
+    } else {
+      return this.startNewRoundInternal(game, round)
+    }
   }
 
-  async startNewRound(id: string): Promise<Game> {
-    const game = await this.findOne(id)
-
-    if (!game) {
-      throw new NotFoundException('Game not found')
-    }
-
-    const round = game.rounds[game.rounds.length - 1]
-
-    const czarIndex = game.players.findIndex((p) => p.id === round.czar_id)
+  private async startNewRoundInternal(
+    game: Game,
+    currentRound: GameRound,
+  ): Promise<Game> {
+    const czarIndex = game.players.findIndex(
+      (p) => p.id === currentRound.czar_id,
+    )
 
     const nextCzarIndex =
       czarIndex + 1 >= game.players.length ? 0 : czarIndex + 1
 
     const nextCzar = game.players[nextCzarIndex]
 
-    const newRound = await this.roundRepo.save({
+    await this.roundRepo.save({
       game_id: game.id,
-      number: round.number + 1,
+      number: currentRound.number + 1,
       czar_id: nextCzar.id,
+      phase: RoundPhase.PICKING_BLACK,
     })
 
-    game.rounds.push(newRound)
+    const updated = await this.findOne(game.id)
 
-    await this.gameRepo.save(game)
+    this.gameGateway.server.to(game.id).emit('game_updated', updated)
 
-    this.gameGateway.server.emit('game_updated', game)
-
-    return game
+    return updated
   }
 
-  async endGame(id: string): Promise<Game> {
+  private async endGameInternal(id: string): Promise<Game> {
     const game = await this.findOne(id)
 
     if (!game) {
@@ -302,17 +387,22 @@ export class GameService {
     }
 
     game.winner = winnerId
+    game.status = GameStatus.FINISHED
 
     await this.gameRepo.save(game)
 
-    this.gameGateway.server.emit('game_updated', game)
+    const updated = await this.findOne(id)
 
-    return game
+    this.gameGateway.server.to(id).emit('game_updated', updated)
+
+    return updated
   }
 
   async remove(id: string): Promise<void> {
-    await this.gameRepo.delete(id)
+    const game = await this.findOne(id)
 
-    return
+    if (game) {
+      await this.gameRepo.remove(game)
+    }
   }
 }

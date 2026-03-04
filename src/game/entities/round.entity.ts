@@ -1,8 +1,23 @@
 // TypeORM
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm'
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm'
 
 // Entities
 import { Card } from 'src/card/entities/card.entity'
+import { Game } from './game.entity'
+import { User } from 'src/user/entities/user.entity'
+
+export enum RoundPhase {
+  PICKING_BLACK = 'picking_black',
+  PICKING_WHITE = 'picking_white',
+  JUDGING = 'judging',
+  COMPLETE = 'complete',
+}
 
 @Entity()
 export class GameRound {
@@ -12,11 +27,26 @@ export class GameRound {
   @Column()
   game_id: string
 
+  @ManyToOne(() => Game, (game) => game.rounds, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'game_id' })
+  game: Game
+
   @Column()
   number: number
 
   @Column()
   czar_id: string
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'czar_id' })
+  czar: User
+
+  @Column({
+    type: 'varchar',
+    enum: RoundPhase,
+    default: RoundPhase.PICKING_BLACK,
+  })
+  phase: RoundPhase
 
   @Column('json', {
     nullable: true,
